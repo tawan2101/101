@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CYCLED VR: 3D Algorithm Lab</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #020617; font-family: sans-serif; touch-action: none; }
+        #game-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; cursor: grab; }
+        #game-container:active { cursor: grabbing; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 10; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 1.5rem; }
+        .pointer-events-auto { pointer-events: auto; }
+        .hand-cursor { transition: transform 0.05s linear; pointer-events: none; }
+        .char-btn { transition: all 0.3s ease; border: 2px solid transparent; }
+        .char-btn.active { border-color: #f59e0b; background-color: rgba(245, 158, 11, 0.2); transform: scale(1.1); box-shadow: 0 0 15px rgba(245, 158, 11, 0.5); }
+        .char-btn:hover:not(.active) { border-color: #06b6d4; background-color: rgba(6, 182, 212, 0.1); transform: scale(1.05); }
+        .btn-start-hover:hover { box-shadow: 0 0 30px rgba(245, 158, 11, 0.6); transform: scale(1.05); }
+        
+        /* สไตล์กรอบตอนลากไฟล์มาวาง */
+        .drag-over { border-color: #10b981 !important; background-color: rgba(16, 185, 129, 0.1) !important; transform: scale(1.02); }
+    </style>
+</head>
+<body>
+
+    <!-- ========================================== -->
+    <!-- 1. หน้าจอเริ่มต้น (Start Screen) -->
+    <!-- ========================================== -->
+    <div id="start-screen" class="fixed inset-0 z-[300] bg-slate-950 flex flex-col items-center justify-center transition-opacity duration-700 ease-in-out">
+        <div class="absolute inset-0 pointer-events-none opacity-20" style="background-image: radial-gradient(circle at center, #06b6d4 1.5px, transparent 1.5px); background-size: 40px 40px;"></div>
+        
+        <div class="text-center z-10 relative px-6 flex flex-col items-center">
+            <h1 class="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-amber-400 mb-2 drop-shadow-[0_0_20px_rgba(6,182,212,0.6)]">
+                CYCLED 3D
+            </h1>
+            <h2 class="text-xl text-slate-400 font-mono tracking-[0.3em] mb-8">ALGORITHM LAB</h2>
+            
+            <div class="mb-10 bg-slate-900/80 p-5 rounded-2xl border border-slate-700 shadow-xl backdrop-blur-sm">
+                <h3 class="text-sm font-bold text-cyan-400 mb-4 tracking-wider">เลือกตัวละครของคุณ</h3>
+                <div class="flex gap-4 justify-center">
+                    <button onclick="selectCharacter('BOY')" id="char-BOY" class="char-btn active px-4 py-3 rounded-xl flex flex-col items-center gap-2 cursor-pointer w-24">
+                        <span class="text-4xl">🧑</span>
+                        <span class="text-xs font-bold text-slate-300">บล็อกบอย</span>
+                    </button>
+                    <button onclick="selectCharacter('WHALE')" id="char-WHALE" class="char-btn px-4 py-3 rounded-xl flex flex-col items-center gap-2 cursor-pointer w-24">
+                        <span class="text-4xl">🐳</span>
+                        <span class="text-xs font-bold text-slate-300">น้องวาฬ</span>
+                    </button>
+                    <button onclick="selectCharacter('ROBOT')" id="char-ROBOT" class="char-btn px-4 py-3 rounded-xl flex flex-col items-center gap-2 cursor-pointer w-24">
+                        <span class="text-4xl">🤖</span>
+                        <span class="text-xs font-bold text-slate-300">หุ่นยนต์</span>
+                    </button>
+                </div>
+            </div>
+            
+            <button onclick="enterGame()" class="btn-start-hover group relative px-10 py-4 bg-slate-900 border-2 border-amber-500 text-amber-400 font-bold text-2xl rounded-2xl overflow-hidden transition-all duration-300 shadow-lg">
+                <div class="absolute inset-0 bg-amber-500 w-0 group-hover:w-full transition-all duration-300 ease-out z-0"></div>
+                <span class="relative z-10 group-hover:text-slate-900 flex items-center gap-3">
+                    ▶️ เริ่มภารกิจ (START)
+                </span>
+            </button>
+        </div>
+    </div>
+
+
+    <!-- ========================================== -->
+    <!-- 2. พื้นที่แสดงผล 3D และ UI เกมหลัก -->
+    <!-- ========================================== -->
+    <div id="game-container"></div>
+
+    <div id="ui-layer" class="opacity-0 transition-opacity duration-1000 hidden">
+        
+        <!-- แผงควบคุมด้านบน -->
+        <div class="w-full flex flex-col items-center gap-4">
+            <header class="w-full max-w-6xl flex justify-between items-center bg-slate-900/80 backdrop-blur-md p-4 rounded-2xl border border-cyan-500/30 shadow-lg pointer-events-auto">
+                <div class="flex items-center gap-4">
+                    <div id="level-display" class="bg-gradient-to-br from-amber-400 to-orange-500 text-slate-900 font-black px-4 py-2 rounded-xl shadow-[0_0_15px_rgba(245,158,11,0.5)] text-lg">
+                        ด่านที่ 1
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-emerald-400">CYCLED: 3D ALGORITHM</h1>
+                        <p class="text-xs text-slate-400 mt-1">คลิกลากเมาส์/นิ้วที่ฉากหลัง 3D เพื่อหมุนมุมกล้องดูเส้นทางได้อย่างอิสระ</p>
+                    </div>
+                </div>
+                <div class="flex gap-2 bg-slate-800 p-1 rounded-xl border border-slate-700">
+                    <button id="btn-mode-ai" onclick="setInputMode('CAMERA')" class="px-4 py-2 bg-emerald-600 rounded-lg font-bold text-white text-xs transition shadow-md">
+                        📷 ใช้กล้อง AI ตรวจจับมือ
+                    </button>
+                    <button id="btn-mode-mouse" onclick="setInputMode('MOUSE')" class="px-4 py-2 bg-transparent rounded-lg font-bold text-slate-400 text-xs transition hover:text-white">
+                        🖱️ ใช้เมาส์ / ระบบสัมผัส
+                    </button>
+                </div>
+            </header>
+        </div>
+
+        <div class="w-full max-w-6xl mx-auto flex flex-col mt-auto gap-3 pointer-events-auto items-stretch">
+            
+            <!-- ป้ายคำอธิบายภารกิจ (Instruction Banner) -->
+            <div class="w-full bg-blue-900/40 backdrop-blur-md border border-blue-500/50 rounded-xl p-4 text-blue-200 text-sm flex items-start gap-4 shadow-lg">
+                <div class="text-3xl animate-bounce mt-1 drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]">💡</div>
+                <div>
+                    <strong class="text-blue-300 text-base">ภารกิจของคุณ: เขียนอัลกอริทึมพาตัวละครฝ่าสิ่งกีดขวางไปเก็บ <span class="text-amber-400 font-black">เหรียญทอง 🥇</span></strong>
+                    <p class="text-slate-300 mt-1">
+                        <span class="text-amber-400 font-bold">วิธีเล่น:</span> <span id="instruction-text">ใช้เมาส์ลาก หรือคลิกหยิบคำสั่งจาก "คลังคำสั่ง" (กล่องซ้าย)</span> ไปวางเรียงลำดับใน "อัลกอริทึม" (กล่องขวา) ให้ถูกต้อง แล้วกดรัน (สามารถกดกากบาท ✕ ท้ายคำสั่งเพื่อลบแก้ไขได้)
+                    </p>
+                </div>
+            </div>
+
+            <div class="flex flex-col md:flex-row gap-4 w-full">
+                <!-- จอกล้องวงจรปิด -->
+                <div id="cam-preview-container" class="bg-slate-900/90 backdrop-blur-md p-3 rounded-2xl border border-slate-700 w-full md:w-56 shadow-xl flex-shrink-0">
+                    <div class="relative w-full h-32 bg-black rounded-xl overflow-hidden border border-emerald-500/50 mb-2">
+                        <video id="webcam-video" class="w-full h-full object-cover scale-x-[-1]" playsinline></video>
+                        <div id="cam-overlay" class="absolute inset-0 flex items-center justify-center bg-slate-900/90 z-10">
+                            <button onclick="startSystem()" class="px-4 py-2 bg-emerald-600 text-white rounded-lg font-bold text-xs shadow-lg">👁️ กดเปิดกล้อง</button>
+                        </div>
+                    </div>
+                    <div id="gesture-indicator" class="text-[11px] font-mono text-center text-emerald-400 bg-emerald-950/50 p-1.5 rounded border border-emerald-500/30">รอเปิดกล้อง AI...</div>
+                </div>
+
+                <!-- คลังคำสั่ง (Toolbox) - เปลี่ยนจากกระดานวาดรูป -->
+                <div class="flex-1 bg-slate-900/90 backdrop-blur-md p-4 rounded-2xl border border-slate-700 shadow-xl flex flex-col relative w-full">
+                    <h2 class="font-bold text-cyan-400 text-sm flex items-center gap-2 mb-3">📦 คลังคำสั่ง (หยิบจากตรงนี้)</h2>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 h-full">
+                        <!-- ปุ่มเดินหน้า -->
+                        <div class="cmd-card bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-xl flex flex-col items-center justify-center cursor-pointer md:cursor-grab active:cursor-grabbing transition shadow-md select-none p-3" 
+                             data-cmd="FORWARD" data-label="⬆️ เดินหน้า" draggable="true" onclick="addCommand('FORWARD', '⬆️ เดินหน้า')">
+                            <span class="text-3xl mb-2 pointer-events-none">⬆️</span><span class="text-xs font-bold text-slate-300 pointer-events-none">เดินหน้า</span>
+                        </div>
+                        <!-- ปุ่มหันขวา -->
+                        <div class="cmd-card bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-xl flex flex-col items-center justify-center cursor-pointer md:cursor-grab active:cursor-grabbing transition shadow-md select-none p-3" 
+                             data-cmd="TURN_RIGHT" data-label="↪️ หันขวา" draggable="true" onclick="addCommand('TURN_RIGHT', '↪️ หันขวา')">
+                            <span class="text-3xl mb-2 pointer-events-none">↪️</span><span class="text-xs font-bold text-slate-300 pointer-events-none">หันขวา</span>
+                        </div>
+                        <!-- ปุ่มหันซ้าย -->
+                        <div class="cmd-card bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-xl flex flex-col items-center justify-center cursor-pointer md:cursor-grab active:cursor-grabbing transition shadow-md select-none p-3" 
+                             data-cmd="TURN_LEFT" data-label="↩️ หันซ้าย" draggable="true" onclick="addCommand('TURN_LEFT', '↩️ หันซ้าย')">
+                            <span class="text-3xl mb-2 pointer-events-none">↩️</span><span class="text-xs font-bold text-slate-300 pointer-events-none">หันซ้าย</span>
+                        </div>
+                        <!-- ปุ่มทำซ้ำ -->
+                        <div class="cmd-card bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-xl flex flex-col items-center justify-center cursor-pointer md:cursor-grab active:cursor-grabbing transition shadow-md select-none p-3" 
+                             data-cmd="LOOP" data-label="🔁 ทำซ้ำ" draggable="true" onclick="addCommand('LOOP', '🔁 ทำซ้ำ')">
+                            <span class="text-3xl mb-2 pointer-events-none">🔁</span><span class="text-xs font-bold text-slate-300 pointer-events-none">ทำซ้ำ (Loop)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- คิวคำสั่ง (Algorithm Queue Dropzone) -->
+                <div id="cmd-list-container" class="bg-slate-900/90 backdrop-blur-md p-4 rounded-2xl border-2 border-slate-700 w-full md:w-80 flex flex-col shadow-xl flex-shrink-0 transition-colors duration-300">
+                    <div class="flex justify-between items-center mb-2 pointer-events-none">
+                        <h2 class="font-bold text-emerald-400 text-sm flex items-center gap-2"><span>📜</span> อัลกอริทึม (วางที่นี่)</h2>
+                        <button onclick="clearCommands(); event.stopPropagation();" class="text-[10px] text-red-400 hover:text-red-300 pointer-events-auto">🗑️ ล้างทั้งหมด</button>
+                    </div>
+                    
+                    <!-- กล่องแสดงคำสั่ง -->
+                    <div id="cmd-list" class="bg-slate-950 rounded-xl p-2 h-28 overflow-y-auto flex flex-wrap gap-1.5 content-start border border-slate-800 pointer-events-none">
+                        <p class="text-slate-600 text-xs w-full text-center mt-8" id="empty-state">รอรับคำสั่ง...</p>
+                    </div>
+
+                    <div class="mt-3 flex gap-2">
+                        <button id="btn-run" onclick="runAlgorithm()" class="flex-1 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 text-white font-bold py-2 rounded-xl text-xs shadow-md transition">
+                            ▶️ รันคำสั่ง
+                        </button>
+                        <button onclick="resetGame()" class="px-3 py-2 bg-slate-800 text-slate-300 font-bold rounded-xl border border-slate-600 text-xs hover:bg-slate-700 transition">
+                            เริ่มใหม่
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- มือจำลอง AI (เคลื่อนที่อิสระทั่วจอ) -->
+    <div id="virtual-hand" class="hand-cursor fixed w-8 h-8 rounded-full border-2 border-emerald-400 bg-emerald-400/20 shadow-[0_0_15px_rgba(16,185,129,0.8)] z-[400] hidden flex items-center justify-center text-xs">
+        <span id="hand-icon">✋</span>
+    </div>
+
+    <!-- UI แจ้งเตือน Toast -->
+    <div id="toast" class="fixed top-24 left-1/2 transform -translate-x-1/2 bg-purple-900/95 border border-purple-400 text-purple-100 px-6 py-3 rounded-full font-bold shadow-[0_0_20px_rgba(168,85,247,0.6)] opacity-0 transition-opacity z-[500] pointer-events-none text-base"></div>
+
+    <script>
+        // ==========================================
+        // 0. ระบบจัดการตัวละคร (Character Selection)
+        // ==========================================
+        let selectedChar = 'BOY';
+        
+        function selectCharacter(charType) {
+            selectedChar = charType;
+            document.querySelectorAll('.char-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`char-${charType}`).classList.add('active');
+        }
+
+        function enterGame() {
+            const startScreen = document.getElementById('start-screen');
+            const uiLayer = document.getElementById('ui-layer');
+            
+            buildPlayerModel(selectedChar);
+
+            startScreen.style.opacity = '0';
+            setTimeout(() => {
+                startScreen.classList.add('hidden');
+                uiLayer.classList.remove('hidden');
+                setTimeout(() => { uiLayer.classList.remove('opacity-0'); }, 50);
+                generateLevel();
+            }, 700);
+        }
+
+        // ==========================================
+        // 1. Game Logic & 3D Engine
+        // ==========================================
+        let currentLevel = 1;
+        const boardSize = 5;
+        const cellSize = 1.2;
+        const offset = (boardSize * cellSize) / 2 - (cellSize / 2);
+        
+        let startState = { x: 0, y: 0, dir: 1 };
+        let playerState = { ...startState }; 
+        let target = { x: 4, y: 4 };
+        let obstacles = [];
+        let rockMeshes = [];
+
+        function get3DPos(x, y) { return new THREE.Vector3((x * cellSize) - offset, 0, (y * cellSize) - offset); }
+
+        const container = document.getElementById('game-container');
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x020617, 0.04);
+
+        const camera3D = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera3D.position.set(6, 8, 8);
+        camera3D.lookAt(0, -1, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera3D, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 - 0.05; 
+        controls.minDistance = 4;
+        controls.maxDistance = 25;
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        dirLight.position.set(5, 10, 5);
+        scene.add(dirLight);
+
+        for (let y = 0; y < boardSize; y++) {
+            for (let x = 0; x < boardSize; x++) {
+                const isEven = (x + y) % 2 === 0;
+                const tile = new THREE.Mesh(
+                    new THREE.BoxGeometry(cellSize - 0.05, 0.2, cellSize - 0.05),
+                    new THREE.MeshStandardMaterial({ color: isEven ? 0x1e293b : 0x334155, roughness: 0.7 })
+                );
+                tile.position.copy(get3DPos(x, y));
+                tile.position.y = -0.1;
+                scene.add(tile);
+            }
+        }
+
+        const playerGroup = new THREE.Group();
+        scene.add(playerGroup);
+
+        function buildPlayerModel(type) {
+            while(playerGroup.children.length > 0) {
+                playerGroup.remove(playerGroup.children[0]);
+            }
+
+            if (type === 'BOY') {
+                const torso = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.3), new THREE.MeshStandardMaterial({ color: 0x3b82f6 }));
+                torso.position.y = 0.35;
+                const head = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, 0.35), new THREE.MeshStandardMaterial({ color: 0xfca5a5 }));
+                head.position.y = 0.8;
+                const visor = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.1, 0.1), new THREE.MeshStandardMaterial({ color: 0x1e293b }));
+                visor.position.set(0, 0.85, 0.18); 
+                playerGroup.add(torso, head, visor);
+            } 
+            else if (type === 'WHALE') {
+                const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.5, 0.9), new THREE.MeshStandardMaterial({ color: 0x06b6d4, roughness: 0.5 }));
+                body.position.y = 0.35;
+                const tail = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.4, 4), new THREE.MeshStandardMaterial({ color: 0x0891b2 }));
+                tail.rotation.x = -Math.PI / 2;
+                tail.position.set(0, 0.35, -0.6); 
+                const faceMark = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.1, 0.1), new THREE.MeshStandardMaterial({ color: 0xffffff }));
+                faceMark.position.set(0, 0.45, 0.4); 
+                playerGroup.add(body, tail, faceMark);
+            } 
+            else if (type === 'ROBOT') {
+                const torso = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.5, 0.45), new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.3 }));
+                torso.position.y = 0.35;
+                const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.9 }));
+                head.position.y = 0.85;
+                const eye = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 0.1), new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xef4444, emissiveIntensity: 2 }));
+                eye.position.set(0, 0.85, 0.21); 
+                playerGroup.add(torso, head, eye);
+            }
+        }
+
+        const medalGroup = new THREE.Group();
+        const medalMesh = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.3, 0.3, 0.06, 32),
+            new THREE.MeshStandardMaterial({ color: 0xfab005, metalness: 0.9, roughness: 0.2 })
+        );
+        medalMesh.rotation.x = Math.PI / 2;
+        medalGroup.add(medalMesh);
+        const ribbon = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.4, 0.02), new THREE.MeshStandardMaterial({ color: 0xe03131 }));
+        ribbon.position.y = 0.3;
+        medalGroup.add(ribbon);
+        scene.add(medalGroup);
+
+        let current3DPos = get3DPos(playerState.x, playerState.y);
+        let current3DRot = Math.PI / 2; 
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update(); 
+            
+            playerGroup.position.lerp(current3DPos, 0.15);
+            playerGroup.rotation.y += (current3DRot - playerGroup.rotation.y) * 0.15;
+            
+            medalGroup.rotation.y += 0.03;
+            medalGroup.position.y = 0.4 + Math.sin(Date.now() * 0.003) * 0.08;
+            renderer.render(scene, camera3D);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera3D.aspect = window.innerWidth / window.innerHeight;
+            camera3D.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // ==========================================
+        // 2. ระบบสุ่มด่าน (Procedural Generation)
+        // ==========================================
+        function isSolvable(testObstacles, tgtX, tgtY) {
+            let queue = [{x: 0, y: 0}];
+            let visited = new Set(['0,0']);
+            
+            while(queue.length > 0) {
+                let curr = queue.shift();
+                if(curr.x === tgtX && curr.y === tgtY) return true;
+
+                let dirs = [[0,1], [1,0], [0,-1], [-1,0]];
+                for(let d of dirs) {
+                    let nx = curr.x + d[0], ny = curr.y + d[1];
+                    if(nx >= 0 && nx < boardSize && ny >= 0 && ny < boardSize) {
+                        let key = nx + ',' + ny;
+                        if(!visited.has(key) && !testObstacles.some(o => o.x === nx && o.y === ny)) {
+                            visited.add(key);
+                            queue.push({x: nx, y: ny});
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        function generateLevel() {
+            document.getElementById('level-display').innerText = `ด่านที่ ${currentLevel}`;
+            
+            rockMeshes.forEach(mesh => scene.remove(mesh));
+            rockMeshes = [];
+
+            target.x = Math.floor(Math.random() * 3) + 2; 
+            target.y = Math.floor(Math.random() * 3) + 2; 
+            medalGroup.position.copy(get3DPos(target.x, target.y));
+
+            let numRocks = Math.min(3 + currentLevel, 12);
+            let validObstacles = [];
+            let foundValidMap = false;
+
+            while(!foundValidMap) {
+                validObstacles = [];
+                for(let i=0; i < numRocks; i++) {
+                    let rx = Math.floor(Math.random() * boardSize);
+                    let ry = Math.floor(Math.random() * boardSize);
+                    if((rx === 0 && ry === 0) || (rx === target.x && ry === target.y)) continue;
+                    if(!validObstacles.some(o => o.x === rx && o.y === ry)) {
+                        validObstacles.push({x: rx, y: ry});
+                    }
+                }
+                if(isSolvable(validObstacles, target.x, target.y)) foundValidMap = true;
+            }
+
+            obstacles = validObstacles;
+
+            obstacles.forEach(obs => {
+                const rock = new THREE.Mesh(
+                    new THREE.DodecahedronGeometry(0.4), 
+                    new THREE.MeshStandardMaterial({ color: 0x64748b })
+                );
+                rock.position.copy(get3DPos(obs.x, obs.y));
+                rock.position.y = 0.3;
+                scene.add(rock);
+                rockMeshes.push(rock);
+            });
+
+            resetPosition();
+        }
+
+        function resetPosition() {
+            playerState = { x: 0, y: 0, dir: 1 };
+            current3DPos = get3DPos(playerState.x, playerState.y);
+            current3DRot = Math.PI / 2; 
+            controls.reset();
+            
+            hasRun = false;
+            updateRunButtonState();
+        }
+
+        // ==========================================
+        // 3. ระบบจัดการคำสั่ง 
+        // ==========================================
+        let commands = [];
+        let isExecuting = false;
+        let hasRun = false; 
+        
+        const cmdListEl = document.getElementById('cmd-list');
+        const toastEl = document.getElementById('toast');
+        const btnRun = document.getElementById('btn-run');
+
+        function showToast(msg, duration = 1500) {
+            toastEl.innerText = msg;
+            toastEl.style.opacity = 1;
+            setTimeout(() => toastEl.style.opacity = 0, duration);
+        }
+
+        function updateRunButtonState() {
+            if (hasRun || isExecuting) {
+                btnRun.classList.add('opacity-50', 'pointer-events-none');
+            } else {
+                btnRun.classList.remove('opacity-50', 'pointer-events-none');
+            }
+        }
+
+        // เพิ่มคำสั่งจากการคลิกหรือดรอป
+        window.addCommand = function(cmd, label) {
+            if (isExecuting || hasRun) return; 
+            commands.push({ cmd, label });
+            renderCommands();
+        }
+
+        function removeCommand(index) {
+            if (isExecuting || hasRun) return; 
+            commands.splice(index, 1);
+            renderCommands();
+        }
+
+        window.clearCommands = function() {
+            if (isExecuting || hasRun) return;
+            commands = [];
+            renderCommands();
+        }
+
+        function renderCommands() {
+            if (commands.length === 0) {
+                cmdListEl.innerHTML = '<p class="text-slate-600 text-xs w-full text-center mt-8">รอรับคำสั่ง...</p>';
+                return;
+            }
+            cmdListEl.innerHTML = '';
+            commands.forEach((c, index) => {
+                const badge = document.createElement('div');
+                badge.className = 'bg-amber-900/40 border border-amber-500/50 text-amber-200 px-3 py-1.5 rounded-lg text-[11px] font-bold h-fit flex items-center gap-1 pointer-events-auto';
+                badge.innerHTML = `
+                    <span>${c.label}</span>
+                    <button onclick="removeCommand(${index})" class="text-red-400 hover:text-red-300 ml-1 font-black bg-red-900/30 px-1.5 rounded transition hover:bg-red-900/60">✕</button>
+                `;
+                cmdListEl.appendChild(badge);
+            });
+            cmdListEl.scrollTop = cmdListEl.scrollHeight;
+        }
+
+        window.resetGame = function() {
+            if (isExecuting) return;
+            resetPosition();
+            showToast("🔄 เริ่มใหม่ (แก้ไขโค้ดและรันซ้ำได้)");
+        }
+
+        window.runAlgorithm = async function() {
+            if (isExecuting || commands.length === 0 || hasRun) return;
+            isExecuting = true;
+            hasRun = true; 
+            updateRunButtonState(); 
+
+            playerState = { x: 0, y: 0, dir: 1 };
+            current3DPos = get3DPos(playerState.x, playerState.y);
+            current3DRot = Math.PI / 2; 
+            playerGroup.position.copy(current3DPos);
+            playerGroup.rotation.y = current3DRot;
+            await new Promise(r => setTimeout(r, 400)); 
+
+            let queue = [];
+            for (let item of commands) {
+                if (item.cmd === 'LOOP') {
+                    const len = queue.length;
+                    for (let j = 0; j < len; j++) queue.push(queue[j]);
+                } else queue.push(item.cmd);
+            }
+
+            for (let step of queue) {
+                if (step === 'TURN_RIGHT') {
+                    playerState.dir = (playerState.dir + 1) % 4;
+                    current3DRot -= Math.PI / 2;
+                }
+                if (step === 'TURN_LEFT') {
+                    playerState.dir = (playerState.dir - 1 + 4) % 4;
+                    current3DRot += Math.PI / 2;
+                }
+                if (step === 'FORWARD') {
+                    let nx = playerState.x, ny = playerState.y;
+                    if (playerState.dir === 0) ny--; 
+                    if (playerState.dir === 1) nx++; 
+                    if (playerState.dir === 2) ny++; 
+                    if (playerState.dir === 3) nx--; 
+
+                    if (nx < 0 || nx >= boardSize || ny < 0 || ny >= boardSize) {
+                        return endGame(false, "🌊 ระวัง! เดินตกขอบกระดาน (กดเริ่มใหม่)");
+                    }
+                    if (obstacles.some(o => o.x === nx && o.y === ny)) {
+                        return endGame(false, "💥 อุ๊บส์! เดินชนสิ่งกีดขวาง (กดเริ่มใหม่)");
+                    }
+                    playerState.x = nx; playerState.y = ny;
+                    current3DPos = get3DPos(nx, ny);
+                }
+                await new Promise(r => setTimeout(r, 500)); 
+            }
+
+            if (playerState.x === target.x && playerState.y === target.y) {
+                showToast(`🎉 ยอดเยี่ยม! ผ่านด่านที่ ${currentLevel} แล้ว`, 2500);
+                isExecuting = false;
+                
+                setTimeout(() => {
+                    currentLevel++;
+                    commands = [];
+                    renderCommands();
+                    generateLevel();
+                }, 2000);
+            } else {
+                endGame(false, "⚠️ โค้ดจบแล้ว แต่ยังไม่ถึงเป้าหมาย (กดเริ่มใหม่)");
+            }
+        }
+
+        function endGame(success, msg) {
+            showToast(msg);
+            isExecuting = false;
+        }
+
+        // ==========================================
+        // 4. ระบบ Drag & Drop สำหรับเมาส์
+        // ==========================================
+        const cmdCards = document.querySelectorAll('.cmd-card');
+        const dropZone = document.getElementById('cmd-list-container');
+
+        cmdCards.forEach(card => {
+            card.addEventListener('dragstart', (e) => {
+                if(hasRun || isExecuting) { e.preventDefault(); return; }
+                e.dataTransfer.setData('text/plain', JSON.stringify({ cmd: card.dataset.cmd, label: card.dataset.label }));
+            });
+        });
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            if(!hasRun && !isExecuting) dropZone.classList.add('border-emerald-500');
+        });
+        dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('border-emerald-500'); });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-emerald-500');
+            if(hasRun || isExecuting) return;
+            try {
+                const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+                addCommand(data.cmd, data.label);
+            } catch(err){}
+        });
+
+
+        // ==========================================
+        // 5. ระบบ AI หยิบจับคำสั่ง (Pinch to Drag)
+        // ==========================================
+        let inputMode = 'CAMERA'; 
+        let cameraRunning = false;
+        let isDraggingAI = false;
+        let draggedAIData = null;
+
+        const btnModeAi = document.getElementById('btn-mode-ai');
+        const btnModeMouse = document.getElementById('btn-mode-mouse');
+        const camPreviewContainer = document.getElementById('cam-preview-container');
+        const virtualHand = document.getElementById('virtual-hand');
+        const gestureIndicator = document.getElementById('gesture-indicator');
+        const instructionText = document.getElementById('instruction-text');
+
+        window.setInputMode = function(mode) {
+            inputMode = mode;
+            if (mode === 'CAMERA') {
+                btnModeAi.className = "px-4 py-2 bg-emerald-600 rounded-lg font-bold text-white text-xs transition shadow-md";
+                btnModeMouse.className = "px-4 py-2 bg-transparent rounded-lg font-bold text-slate-400 text-xs transition hover:text-white";
+                camPreviewContainer.classList.remove('hidden');
+                instructionText.innerText = 'ใช้มือ "จีบนิ้ว" เพื่อหยิบคำสั่งจาก "คลังคำสั่ง" (กล่องซ้าย)';
+                if (cameraRunning) virtualHand.classList.remove('hidden');
+            } else {
+                btnModeAi.className = "px-4 py-2 bg-transparent rounded-lg font-bold text-slate-400 text-xs transition hover:text-white";
+                btnModeMouse.className = "px-4 py-2 bg-blue-600 rounded-lg font-bold text-white text-xs transition shadow-md";
+                camPreviewContainer.classList.add('hidden');
+                virtualHand.classList.add('hidden');
+                instructionText.innerText = 'คลิก หรือใช้เมาส์ลากคำสั่งจาก "คลังคำสั่ง" (กล่องซ้าย)';
+            }
+        }
+
+        const videoEl = document.getElementById('webcam-video');
+        let camera = null;
+        const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
+        hands.onResults(onHandResults);
+
+        window.startSystem = async function() {
+            document.getElementById('cam-overlay').classList.add('hidden');
+            gestureIndicator.innerText = "กำลังเปิดกล้อง...";
+            try {
+                camera = new Camera(videoEl, { onFrame: async () => { await hands.send({ image: videoEl }); }, width: 320, height: 240 });
+                await camera.start();
+                cameraRunning = true;
+                gestureIndicator.innerText = "พร้อมจับภาพมือ ✋";
+                if(inputMode === 'CAMERA') virtualHand.classList.remove('hidden');
+            } catch (err) {
+                alert("เข้าถึงกล้องไม่ได้ ระบบจะเปลี่ยนเป็นโหมดสัมผัส");
+                setInputMode('MOUSE'); 
+            }
+        }
+
+        function onHandResults(results) {
+            if (inputMode !== 'CAMERA') return; 
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                const thumbTip = landmarks[4];
+                const indexTip = landmarks[8];
+
+                // อิงพิกัดจากหน้าจอรวม
+                const screenX = (1 - (thumbTip.x + indexTip.x) / 2) * window.innerWidth;
+                const screenY = ((thumbTip.y + indexTip.y) / 2) * window.innerHeight;
+                
+                virtualHand.style.transform = `translate(${screenX}px, ${screenY}px)`;
+
+                const dist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y, thumbTip.z - indexTip.z);
+                const pinchNow = dist < 0.075;
+
+                // เมื่อเริ่มจีบนิ้ว (หยิบ)
+                if (pinchNow && !isDraggingAI && !hasRun && !isExecuting) {
+                    // ซ่อนมือจำลองแป๊บนึงเพื่อให้ elementsFromPoint ทะลุลงไปหาปุ่มได้
+                    virtualHand.style.display = 'none';
+                    const el = document.elementFromPoint(screenX, screenY);
+                    virtualHand.style.display = 'flex';
+
+                    const card = el ? el.closest('.cmd-card') : null;
+                    if (card) {
+                        isDraggingAI = true;
+                        draggedAIData = { cmd: card.dataset.cmd, label: card.dataset.label };
+                        
+                        // แสดงไอคอนลอยตามมือ
+                        virtualHand.innerHTML = `<span class="text-xl">${draggedAIData.label.split(' ')[0]}</span>`;
+                        virtualHand.classList.add('scale-150', 'bg-purple-500/80', 'border-purple-300');
+                        gestureIndicator.innerHTML = "กำลังหยิบ... 🤏";
+                        dropZone.classList.add('border-purple-500');
+                    }
+                } 
+                // ขณะกำลังลาก
+                else if (pinchNow && isDraggingAI) {
+                    // มือลอยตาม screenX, screenY ปกติ
+                } 
+                // เมื่อคลายนิ้ว (ปล่อย)
+                else if (!pinchNow && isDraggingAI) {
+                    isDraggingAI = false;
+                    dropZone.classList.remove('border-purple-500');
+                    
+                    virtualHand.style.display = 'none';
+                    const el = document.elementFromPoint(screenX, screenY);
+                    virtualHand.style.display = 'flex';
+
+                    const targetZone = el ? el.closest('#cmd-list-container') : null;
+                    if (targetZone && !hasRun && !isExecuting) {
+                        addCommand(draggedAIData.cmd, draggedAIData.label);
+                    }
+                    
+                    draggedAIData = null;
+                    virtualHand.innerHTML = `<span id="hand-icon">✋</span>`;
+                    virtualHand.classList.remove('scale-150', 'bg-purple-500/80', 'border-purple-300');
+                    gestureIndicator.innerText = "พร้อมจับภาพมือ ✋";
+                }
+            }
+        }
+
+        setInputMode('CAMERA');
+    </script>
+</body>
+</html>
